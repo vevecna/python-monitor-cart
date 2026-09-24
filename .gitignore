@@ -19,6 +19,8 @@ __pycache__/
 # ambiente e segredos
 .env
 .env.local
+# perfil do Chromium: contém os cookies de sessão da conta do usuário
+perfil_navegador/
 
 # sistema
 .DS_Store
