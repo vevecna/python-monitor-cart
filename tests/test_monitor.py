@@ -9,17 +9,15 @@ Todos usam HTML local via `page.set_content(...)`; nenhum toca a loja real.
 from __future__ import annotations
 
 import logging
+import os
 
 import pytest
 import requests
 from playwright.sync_api import sync_playwright
 
-from monitor_estoque import (
-    Config,
-    Estado,
-    NotificadorTelegram,
-    VerificadorEstoque,
-)
+from monitor.config import Config, carregar_env
+from monitor.notificadores import NotificadorTelegram
+from monitor.verificador import Estado, VerificadorEstoque
 
 FRASE = "Este produto não está disponível no momento"
 
@@ -86,6 +84,80 @@ def test_intervalo_abaixo_do_minimo_e_rejeitado():
 
 def test_intervalo_no_piso_e_aceito():
     assert Config(url="http://exemplo.invalido", intervalo_seg=60).intervalo_seg == 60
+
+
+# ────────────────────────── Leitura do arquivo .env ──────────────────────────
+@pytest.fixture
+def ambiente(monkeypatch) -> dict[str, str]:
+    """Substitui os.environ por um dicionário vazio, isolando o teste do ambiente real."""
+    falso: dict[str, str] = {}
+    monkeypatch.setattr(os, "environ", falso)
+    return falso
+
+
+def escrever_env(tmp_path, conteudo: str) -> str:
+    arquivo = tmp_path / ".env"
+    arquivo.write_text(conteudo, encoding="utf-8")
+    arquivo.chmod(0o600)
+    return str(arquivo)
+
+
+def test_env_carrega_pares_simples(tmp_path, ambiente):
+    carregar_env(escrever_env(tmp_path, "TELEGRAM_TOKEN=123:ABC\nTELEGRAM_CHAT_ID=987\n"))
+    assert ambiente["TELEGRAM_TOKEN"] == "123:ABC"
+    assert ambiente["TELEGRAM_CHAT_ID"] == "987"
+
+
+def test_env_remove_aspas_e_prefixo_export(tmp_path, ambiente):
+    carregar_env(escrever_env(tmp_path, "export TELEGRAM_TOKEN=\"123:ABC\"\nTELEGRAM_CHAT_ID='987'\n"))
+    assert ambiente["TELEGRAM_TOKEN"] == "123:ABC"
+    assert ambiente["TELEGRAM_CHAT_ID"] == "987"
+
+
+def test_env_ignora_comentarios_e_linhas_vazias(tmp_path, ambiente):
+    carregar_env(escrever_env(tmp_path, "# comentário\n\n  \nTELEGRAM_CHAT_ID=987\n"))
+    assert ambiente["TELEGRAM_CHAT_ID"] == "987"
+    assert "#" not in "".join(ambiente)
+
+
+def test_ambiente_existente_tem_precedencia(tmp_path, ambiente):
+    """Permite sobrescrever pontualmente: TELEGRAM_CHAT_ID=outro python monitor_estoque.py ..."""
+    ambiente["TELEGRAM_CHAT_ID"] = "do-ambiente"
+    carregar_env(escrever_env(tmp_path, "TELEGRAM_CHAT_ID=do-arquivo\n"))
+    assert ambiente["TELEGRAM_CHAT_ID"] == "do-ambiente"
+
+
+def test_env_preserva_cerquilha_no_valor(tmp_path, ambiente):
+    """Um token pode conter `#`; truncar nele silenciosamente seria pior que ignorar a convenção."""
+    carregar_env(escrever_env(tmp_path, "TELEGRAM_TOKEN=123:AB#CD\n"))
+    assert ambiente["TELEGRAM_TOKEN"] == "123:AB#CD"
+
+
+def test_env_ausente_nao_quebra(tmp_path, ambiente):
+    carregar_env(str(tmp_path / "nao-existe"))
+    assert "TELEGRAM_TOKEN" not in ambiente
+
+
+def test_env_avisa_sobre_linha_malformada(tmp_path, ambiente, caplog):
+    with caplog.at_level(logging.WARNING):
+        carregar_env(escrever_env(tmp_path, "sem_igual\nTELEGRAM_CHAT_ID=987\n"))
+    assert "linha 1" in caplog.text
+    assert ambiente["TELEGRAM_CHAT_ID"] == "987"   # a linha boa ainda é lida
+
+
+def test_env_nao_loga_valores(tmp_path, ambiente, caplog):
+    with caplog.at_level(logging.DEBUG):
+        carregar_env(escrever_env(tmp_path, "TELEGRAM_TOKEN=123:TOKEN_SECRETO\n"))
+    assert "TOKEN_SECRETO" not in caplog.text
+    assert "TELEGRAM_TOKEN" in caplog.text   # o nome da chave, sim
+
+
+def test_env_avisa_sobre_permissao_aberta(tmp_path, ambiente, caplog):
+    caminho = escrever_env(tmp_path, "TELEGRAM_TOKEN=123:ABC\n")
+    os.chmod(caminho, 0o644)
+    with caplog.at_level(logging.WARNING):
+        carregar_env(caminho)
+    assert "chmod 600" in caplog.text
 
 
 # ─────────────────────────── Notificador Telegram ───────────────────────────

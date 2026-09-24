@@ -1,0 +1,42 @@
+# Serviço de usuário do systemd para deixar o monitor rodando em segundo plano.
+#
+# Instalação:
+#   mkdir -p ~/.config/systemd/user
+#   cp deploy/monitor.service ~/.config/systemd/user/
+#   # edite a linha ExecStart com a SUA URL, seletor e frase
+#   systemctl --user daemon-reload
+#   systemctl --user start monitor
+#   journalctl --user -u monitor -f      # acompanhar os logs
+#
+# Para monitorar vários produtos, copie este arquivo com outro nome
+# (monitor-blister.service, monitor-box.service) e ajuste o ExecStart de cada um.
+
+[Unit]
+Description=Monitor de estoque (Playwright)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+
+# Precisa ser o diretório do projeto: é onde ficam o .env e ./perfil_navegador.
+WorkingDirectory=/home/vv/Workspace/python-monitor-cart
+
+ExecStart=/home/vv/Workspace/python-monitor-cart/bin/python -m monitor \
+    "https://www.copagloja.com.br/blister-unitario-pokemon-me05-escuridao-absoluta/p" \
+    --seletor "a.buy-button-ref" \
+    --frase "AVISE-ME" \
+    --clicar \
+    --intervalo 300
+
+# `on-failure`, nunca `always`: o monitor encerra de propósito ao achar o produto
+# (notifica uma vez e sai). Com `always`, o systemd o reiniciaria e ele adicionaria
+# o item ao carrinho de novo, em loop.
+Restart=on-failure
+RestartSec=60
+
+# Sem buffer, para os logs aparecerem no journal em tempo real.
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=default.target
