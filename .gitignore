@@ -1,0 +1,24 @@
+# virtualenv criado na raiz do projeto
+pyvenv.cfg
+bin/
+include/
+lib/
+lib64
+share/
+# virtualenv em subpasta (caso seja movido)
+.venv/
+venv/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# ambiente e segredos
+.env
+.env.local
+
+# sistema
+.DS_Store
